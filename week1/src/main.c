@@ -35,6 +35,9 @@ static struct gpio_callback button_3_data;
 static const struct gpio_dt_spec button_4 = GPIO_DT_SPEC_GET_OR(BUTTON_4, gpios, {4});
 static struct gpio_callback button_4_data;
 int button_4_pressed=0;
+int button_3_pressed=0;
+int button_2_pressed=0;
+int button_1_pressed=0;
 
 // Button interrupt handler
 void button_0_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
@@ -69,45 +72,52 @@ void button_0_handler(const struct device *dev, struct gpio_callback *cb, uint32
 void button_1_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
 	printk("Button 1 pressed\n");
-	int btn=0;
-	gpio_pin_set_dt(&blue,0);
+	
+	button_1_pressed = !button_1_pressed;
+if (button_1_pressed)
+{
+   gpio_pin_set_dt(&blue,0);
 	gpio_pin_set_dt(&green,0);
 	gpio_pin_set_dt(&red,1);
-	if(btn==1)
-	{
-		gpio_pin_set_dt(&red,0);
-	}
-	btn=1;
+}
+else
+{
+   gpio_pin_set_dt(&red,0);
+}
+
 	
 
 }
 void button_2_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
 	printk("Button 2 pressed\n");
-	int btn=0;
-	gpio_pin_set_dt(&blue,0);
+	button_2_pressed = !button_2_pressed;
+if (button_2_pressed)
+{
+   gpio_pin_set_dt(&blue,0);
 	gpio_pin_set_dt(&green,1);
 	gpio_pin_set_dt(&red,1);
-	if(btn==1)
-	{
-		gpio_pin_set_dt(&red,0);
-		gpio_pin_set_dt(&green,0);
-	}
-	btn=1;
+}
+else
+{
+   gpio_pin_set_dt(&red,0);
+   gpio_pin_set_dt(&green, 0);
+}
 }
 void button_3_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
 	printk("Button 3 pressed\n");
-	int btn=0;
-	gpio_pin_set_dt(&blue,0);
+	button_3_pressed = !button_3_pressed;
+	if (button_3_pressed)
+{
+   gpio_pin_set_dt(&blue,0);
 	gpio_pin_set_dt(&green,1);
 	gpio_pin_set_dt(&red,0);
-	if(btn==1)
-	{
-		
-		gpio_pin_set_dt(&green,0);
-	}
-	btn=1;
+}
+else
+{
+   gpio_pin_set_dt(&green,0);
+}
 }
 void button_4_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 { 
