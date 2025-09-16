@@ -3,6 +3,7 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/uart.h>
+// Tämä on vasta yhden pisteen toteutus viikkotehtävä 3 koska tein kolme pisteen toteutuksen käytän tässä singelshot taskeja
 
 // LED-konfiguraatiot
 static const struct gpio_dt_spec red = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
