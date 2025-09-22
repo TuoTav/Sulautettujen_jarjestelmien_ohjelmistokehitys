@@ -3,6 +3,7 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/uart.h>
+#include <stdlib.h>
 // Tämä on vasta yhden pisteen toteutus viikkotehtävä 3 koska tein kolme pisteen toteutuksen käytän tässä singelshot taskeja
 
 // LED-konfiguraatiot
@@ -29,6 +30,10 @@ static struct gpio_callback button_2_cb_data;
 static struct gpio_callback button_3_cb_data;
 static struct gpio_callback button_4_cb_data;
 
+K_SEM_DEFINE(red_sem, 0, 1);
+K_SEM_DEFINE(green_sem, 0, 1);
+K_SEM_DEFINE(yellow_sem, 0, 1);
+
 // UART ja dispatcher
 const struct device *uart_dev = DEVICE_DT_GET(DT_NODELABEL(uart0));
 #define STACKSIZE 500
@@ -44,43 +49,50 @@ K_SEM_DEFINE(dispatcher_release_sem, 1, 1);
 void red_led_task(void *, void *, void *);
 void green_led_task(void *, void *, void *);
 void yellow_led_task(void *, void *, void *);
-void dispatcher_thread(void *, void *, void *);
-void uart_receiver_thread(void *, void *, void *);
+static void dispatcher_task(void *, void *, void *);
+static void uart_task(void *, void *, void *);
 
 K_THREAD_DEFINE(red_thread, STACKSIZE, red_led_task, NULL, NULL, NULL, PRIORITY, 0, 0);
 K_THREAD_DEFINE(green_thread, STACKSIZE, green_led_task, NULL, NULL, NULL, PRIORITY, 0, 0);
 K_THREAD_DEFINE(yellow_thread, STACKSIZE, yellow_led_task, NULL, NULL, NULL, PRIORITY, 0, 0);
-K_THREAD_DEFINE(dispatcher_thread_id, STACKSIZE, dispatcher_thread, NULL, NULL, NULL, PRIORITY, 0, 0);
-K_THREAD_DEFINE(uart_thread_id, STACKSIZE, uart_receiver_thread, NULL, NULL, NULL, PRIORITY, 0, 0);
+K_THREAD_DEFINE(dispatcher_thread_id, STACKSIZE, dispatcher_task, NULL, NULL, NULL, PRIORITY, 0, 0);
+K_THREAD_DEFINE(uart_thread_id, STACKSIZE, uart_task, NULL, NULL, NULL, PRIORITY, 0, 0);
 
 // Pause-tuki
 int paused = 0;
+volatile int red_duration = 1000;
+volatile int green_duration = 1000;
+volatile int yellow_duration = 1000;
+
+struct data_t{
+	void *fifo_reserved;
+	char msg[20];
+	
+};
+
+K_FIFO_DEFINE(dispatcher_fifo);
 
 void button_0_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
-    if (!paused) {
-        paused = 1;
-        k_thread_suspend(red_thread);
-        k_thread_suspend(green_thread);
-        k_thread_suspend(yellow_thread);
-        printk("Paused\n");
-    } else {
-        paused = 0;
-        k_thread_resume(red_thread);
-        k_thread_resume(green_thread);
-        k_thread_resume(yellow_thread);
-        printk("Resumed\n");
-    }
+	paused = !paused;
+
 }
 
 void button_1_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
+	char colour = 'R';
+	k_msgq_put(&color_msgq, &colour, K_NO_WAIT);
     printk("Button 1 pressed\n");
+
 }
 
 void button_2_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
+	char colour = 'Y';
+	k_msgq_put(&color_msgq, &colour, K_NO_WAIT);
     printk("Button 2 pressed\n");
 }
 
 void button_3_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
+	char colour = 'G';
+	k_msgq_put(&color_msgq, &colour, K_NO_WAIT);
     printk("Button 3 pressed\n");
 }
 
@@ -88,37 +100,37 @@ void button_4_handler(const struct device *dev, struct gpio_callback *cb, uint32
     printk("Button 4 pressed\n");
 }
 
-void red_led_task(void *, void *, void *) {
+void red_led_task(void*, void*, void *) {
     while (1) {
-        k_thread_suspend(k_current_get());
+        k_sem_take(&red_sem, K_FOREVER);  
         gpio_pin_set_dt(&red, 1);
         printk("Red ON\n");
-        k_sleep(K_SECONDS(1));
+        k_msleep(red_duration);
         gpio_pin_set_dt(&red, 0);
         printk("Red OFF\n");
-        k_sem_give(&dispatcher_release_sem);
+        k_sem_give(&dispatcher_release_sem);  
     }
 }
 
-void green_led_task(void *, void *, void *) {
+void green_led_task(void * , void*, void *) {
     while (1) {
-        k_thread_suspend(k_current_get());
+        k_sem_take(&green_sem, K_FOREVER);
         gpio_pin_set_dt(&green, 1);
         printk("Green ON\n");
-        k_sleep(K_SECONDS(1));
+        k_msleep(green_duration);
         gpio_pin_set_dt(&green, 0);
         printk("Green OFF\n");
         k_sem_give(&dispatcher_release_sem);
     }
 }
 
-void yellow_led_task(void *, void *, void *) {
+void yellow_led_task(void * , void*, void *) {
     while (1) {
-        k_thread_suspend(k_current_get());
+        k_sem_take(&yellow_sem, K_FOREVER);
         gpio_pin_set_dt(&red, 1);
         gpio_pin_set_dt(&green, 1);
         printk("Yellow ON\n");
-        k_sleep(K_SECONDS(1));
+        k_msleep(yellow_duration);
         gpio_pin_set_dt(&red, 0);
         gpio_pin_set_dt(&green, 0);
         printk("Yellow OFF\n");
@@ -126,34 +138,65 @@ void yellow_led_task(void *, void *, void *) {
     }
 }
 
-void dispatcher_thread(void *, void *, void *) {
-    char color;
-    while (1) {
-        k_msgq_get(&color_msgq, &color, K_FOREVER);
-        k_sem_take(&dispatcher_release_sem, K_FOREVER);
-        if (paused) continue;
-        switch (color) {
-            case 'R':
-                k_thread_resume(red_thread);
-                break;
-            case 'Y':
-                k_thread_resume(yellow_thread);
-                break;
-            case 'G':
-                k_thread_resume(green_thread);
-                break;
-            default:
-                break;
+static void dispatcher_task(void *, void *, void *)
+{
+    while (true) {
+        struct data_t *rec_item = k_fifo_get(&dispatcher_fifo, K_FOREVER);
+        if (!rec_item) continue;
+
+        char sequence[20];
+        strncpy(sequence, rec_item->msg, sizeof(sequence));
+        k_free(rec_item);
+
+        printk("Dispatcher: %s\n", sequence);
+
+        // Parsitaan
+        char color = sequence[0];
+        int duration = atoi(&sequence[2]); // Oletetaan muoto "R,1000"
+
+        printk("Parsed: %c, %d ms\n", color, duration);
+
+        // Esim: tallenna duration, ja vapauta oikea sema
+        if (color == 'R') {
+            red_duration = duration;
+            k_sem_give(&red_sem);
+        } else if (color == 'Y') {
+            yellow_duration = duration;
+            k_sem_give(&yellow_sem);
+        } else if (color == 'G') {
+            green_duration = duration;
+            k_sem_give(&green_sem);
         }
+
+        // Odota seuraavaa valoa varten
+        k_sem_take(&dispatcher_release_sem, K_FOREVER);
     }
 }
 
-void uart_receiver_thread(void *, void *, void *) {
-    char c;
-    while (1) {
-        if (uart_poll_in(uart_dev, &c) == 0) {
-            if (c == 'R' || c == 'Y' || c == 'G') {
-                k_msgq_put(&color_msgq, &c, K_NO_WAIT);
+static void uart_task(void *, void *, void *)
+{
+    char rc = 0;
+    char uart_msg[20];
+    memset(uart_msg, 0, sizeof(uart_msg));
+    int uart_msg_cnt = 0;
+
+    while (true) {
+        if (uart_poll_in(uart_dev, &rc) == 0) {
+            if (rc != '\r') {
+                if (uart_msg_cnt < sizeof(uart_msg) - 1) {
+                    uart_msg[uart_msg_cnt++] = rc;
+                }
+            } else {
+                printk("UART msg: %s\n", uart_msg);
+
+                struct data_t *buf = k_malloc(sizeof(struct data_t));
+                if (buf != NULL) {
+                    snprintf(buf->msg, sizeof(buf->msg), "%s", uart_msg);
+                    k_fifo_put(&dispatcher_fifo, buf);
+                }
+
+                uart_msg_cnt = 0;
+                memset(uart_msg, 0, sizeof(uart_msg));
             }
         }
         k_msleep(10);
