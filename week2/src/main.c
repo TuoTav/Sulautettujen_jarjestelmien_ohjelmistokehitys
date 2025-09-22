@@ -141,6 +141,10 @@ void yellow_led_task(void * , void*, void *) {
 static void dispatcher_task(void *, void *, void *)
 {
     while (true) {
+
+        while(paused){
+            k_msleep(100);
+        }
         struct data_t *rec_item = k_fifo_get(&dispatcher_fifo, K_FOREVER);
         if (!rec_item) continue;
 
