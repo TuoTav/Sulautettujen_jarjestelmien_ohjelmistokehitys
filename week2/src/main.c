@@ -4,7 +4,7 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/uart.h>
 #include <stdlib.h>
-// Tämä on vasta yhden pisteen toteutus viikkotehtävä 3 koska tein kolme pisteen toteutuksen käytän tässä singelshot taskeja
+// Tämä on 3 pisteen toteutus viikkotehtävä 3 
 
 // LED-konfiguraatiot
 static const struct gpio_dt_spec red = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
@@ -45,7 +45,7 @@ K_MSGQ_DEFINE(color_msgq, MSGQ_MSG_SIZE, MSGQ_MAX_MSGS, 4);
 
 K_SEM_DEFINE(dispatcher_release_sem, 1, 1);
 
-// Thread-handlet
+
 void red_led_task(void *, void *, void *);
 void green_led_task(void *, void *, void *);
 void yellow_led_task(void *, void *, void *);
@@ -58,7 +58,7 @@ K_THREAD_DEFINE(yellow_thread, STACKSIZE, yellow_led_task, NULL, NULL, NULL, PRI
 K_THREAD_DEFINE(dispatcher_thread_id, STACKSIZE, dispatcher_task, NULL, NULL, NULL, PRIORITY, 0, 0);
 K_THREAD_DEFINE(uart_thread_id, STACKSIZE, uart_task, NULL, NULL, NULL, PRIORITY, 0, 0);
 
-// Pause-tuki
+
 int paused = 0;
 volatile int red_duration = 1000;
 volatile int green_duration = 1000;
