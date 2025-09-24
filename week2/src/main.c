@@ -4,6 +4,7 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/uart.h>
 #include <stdlib.h>
+#include <zephyr/timing/timing.h>
 // Tämä on 3 pisteen toteutus viikkotehtävä 3 
 
 // LED-konfiguraatiot
@@ -39,9 +40,9 @@ const struct device *uart_dev = DEVICE_DT_GET(DT_NODELABEL(uart0));
 #define STACKSIZE 500
 #define PRIORITY 5
 
-#define MSGQ_MAX_MSGS 32
-#define MSGQ_MSG_SIZE sizeof(char)
-K_MSGQ_DEFINE(color_msgq, MSGQ_MSG_SIZE, MSGQ_MAX_MSGS, 4);
+//#define MSGQ_MAX_MSGS 32
+//#define MSGQ_MSG_SIZE sizeof(char)
+//K_MSGQ_DEFINE(color_msgq, MSGQ_MSG_SIZE, MSGQ_MAX_MSGS, 4);
 
 K_SEM_DEFINE(dispatcher_release_sem, 1, 1);
 
@@ -78,21 +79,33 @@ void button_0_handler(const struct device *dev, struct gpio_callback *cb, uint32
 }
 
 void button_1_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
-	char colour = 'R';
-	k_msgq_put(&color_msgq, &colour, K_NO_WAIT);
+    struct data_t *buf =k_malloc(sizeof(struct data_t));
+    if(buf !=NULL)
+    {
+        snprintf(buf->msg,sizeof(buf->msg),"R,1000");
+        k_fifo_put(&dispatcher_fifo, buf);
+    }
     printk("Button 1 pressed\n");
 
 }
 
 void button_2_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
-	char colour = 'Y';
-	k_msgq_put(&color_msgq, &colour, K_NO_WAIT);
+	 struct data_t *buf =k_malloc(sizeof(struct data_t));
+    if(buf !=NULL)
+    {
+        snprintf(buf->msg,sizeof(buf->msg),"Y,1000");
+        k_fifo_put(&dispatcher_fifo, buf);
+    }
     printk("Button 2 pressed\n");
 }
 
 void button_3_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
-	char colour = 'G';
-	k_msgq_put(&color_msgq, &colour, K_NO_WAIT);
+	 struct data_t *buf =k_malloc(sizeof(struct data_t));
+    if(buf !=NULL)
+    {
+        snprintf(buf->msg,sizeof(buf->msg),"G,1000");
+        k_fifo_put(&dispatcher_fifo, buf);
+    }
     printk("Button 3 pressed\n");
 }
 
