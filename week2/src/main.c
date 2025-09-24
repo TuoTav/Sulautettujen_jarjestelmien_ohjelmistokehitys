@@ -59,11 +59,12 @@ K_THREAD_DEFINE(yellow_thread, STACKSIZE, yellow_led_task, NULL, NULL, NULL, PRI
 K_THREAD_DEFINE(dispatcher_thread_id, STACKSIZE, dispatcher_task, NULL, NULL, NULL, PRIORITY, 0, 0);
 K_THREAD_DEFINE(uart_thread_id, STACKSIZE, uart_task, NULL, NULL, NULL, PRIORITY, 0, 0);
 
-
+struct k_mutex light_mutex;
 int paused = 0;
 volatile int red_duration = 1000;
 volatile int green_duration = 1000;
 volatile int yellow_duration = 1000;
+
 
 struct data_t{
 	void *fifo_reserved;
@@ -75,10 +76,12 @@ K_FIFO_DEFINE(dispatcher_fifo);
 
 void button_0_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
 	paused = !paused;
+    printk("paused");
 
 }
 
 void button_1_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
+    
     struct data_t *buf =k_malloc(sizeof(struct data_t));
     if(buf !=NULL)
     {
@@ -86,10 +89,12 @@ void button_1_handler(const struct device *dev, struct gpio_callback *cb, uint32
         k_fifo_put(&dispatcher_fifo, buf);
     }
     printk("Button 1 pressed\n");
+    
 
 }
 
 void button_2_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
+    
 	 struct data_t *buf =k_malloc(sizeof(struct data_t));
     if(buf !=NULL)
     {
@@ -97,6 +102,7 @@ void button_2_handler(const struct device *dev, struct gpio_callback *cb, uint32
         k_fifo_put(&dispatcher_fifo, buf);
     }
     printk("Button 2 pressed\n");
+
 }
 
 void button_3_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
@@ -115,12 +121,14 @@ void button_4_handler(const struct device *dev, struct gpio_callback *cb, uint32
 
 void red_led_task(void*, void*, void *) {
     while (1) {
-        k_sem_take(&red_sem, K_FOREVER);  
+        k_sem_take(&red_sem, K_FOREVER); 
+        k_mutex_lock(&light_mutex, K_FOREVER); 
         gpio_pin_set_dt(&red, 1);
         printk("Red ON\n");
         k_msleep(red_duration);
         gpio_pin_set_dt(&red, 0);
         printk("Red OFF\n");
+        k_mutex_unlock(&light_mutex);
         k_sem_give(&dispatcher_release_sem);  
     }
 }
@@ -128,11 +136,13 @@ void red_led_task(void*, void*, void *) {
 void green_led_task(void * , void*, void *) {
     while (1) {
         k_sem_take(&green_sem, K_FOREVER);
+        k_mutex_lock(&light_mutex, K_FOREVER);
         gpio_pin_set_dt(&green, 1);
         printk("Green ON\n");
         k_msleep(green_duration);
         gpio_pin_set_dt(&green, 0);
         printk("Green OFF\n");
+        k_mutex_unlock(&light_mutex);
         k_sem_give(&dispatcher_release_sem);
     }
 }
@@ -140,6 +150,7 @@ void green_led_task(void * , void*, void *) {
 void yellow_led_task(void * , void*, void *) {
     while (1) {
         k_sem_take(&yellow_sem, K_FOREVER);
+        k_mutex_lock(&light_mutex, K_FOREVER);
         gpio_pin_set_dt(&red, 1);
         gpio_pin_set_dt(&green, 1);
         printk("Yellow ON\n");
@@ -147,6 +158,7 @@ void yellow_led_task(void * , void*, void *) {
         gpio_pin_set_dt(&red, 0);
         gpio_pin_set_dt(&green, 0);
         printk("Yellow OFF\n");
+        k_mutex_unlock(&light_mutex);
         k_sem_give(&dispatcher_release_sem);
     }
 }
@@ -154,11 +166,11 @@ void yellow_led_task(void * , void*, void *) {
 static void dispatcher_task(void *, void *, void *)
 {
     while (true) {
-
+        struct data_t *rec_item = k_fifo_get(&dispatcher_fifo, K_FOREVER);
         while(paused){
             k_msleep(100);
         }
-        struct data_t *rec_item = k_fifo_get(&dispatcher_fifo, K_FOREVER);
+        
         if (!rec_item) continue;
 
         char sequence[20];
@@ -259,6 +271,7 @@ int init_buttons() {
 }
 
 int main(void) {
+    k_mutex_init(&light_mutex);
 	init_led();
 	init_buttons();
     if (!device_is_ready(uart_dev)) {
