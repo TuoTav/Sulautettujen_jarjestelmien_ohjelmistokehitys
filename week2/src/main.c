@@ -5,7 +5,7 @@
 #include <zephyr/drivers/uart.h>
 #include <stdlib.h>
 #include <zephyr/timing/timing.h>
-// Tämä on 3 pisteen toteutus viikkotehtävä 3 
+// Tämä on 2 pisteen toteutus viikkotehtävä 4 vielä pitää keksiä tapa jolla debugtask ei lisää tasking suoritus aikaa
 
 // LED-konfiguraatiot
 static const struct gpio_dt_spec red = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
@@ -52,31 +52,41 @@ void green_led_task(void *, void *, void *);
 void yellow_led_task(void *, void *, void *);
 static void dispatcher_task(void *, void *, void *);
 static void uart_task(void *, void *, void *);
+static void debug_task(void*,void*,void*);
 
 K_THREAD_DEFINE(red_thread, STACKSIZE, red_led_task, NULL, NULL, NULL, PRIORITY, 0, 0);
 K_THREAD_DEFINE(green_thread, STACKSIZE, green_led_task, NULL, NULL, NULL, PRIORITY, 0, 0);
 K_THREAD_DEFINE(yellow_thread, STACKSIZE, yellow_led_task, NULL, NULL, NULL, PRIORITY, 0, 0);
 K_THREAD_DEFINE(dispatcher_thread_id, STACKSIZE, dispatcher_task, NULL, NULL, NULL, PRIORITY, 0, 0);
 K_THREAD_DEFINE(uart_thread_id, STACKSIZE, uart_task, NULL, NULL, NULL, PRIORITY, 0, 0);
+K_THREAD_DEFINE(debug_thread_id, STACKSIZE, debug_task, NULL,NULL,NULL,6,0,0);
 
 struct k_mutex light_mutex;
+struct k_mutex time_mutex;
 int paused = 0;
 volatile int red_duration = 1000;
 volatile int green_duration = 1000;
 volatile int yellow_duration = 1000;
-
+uint64_t total_sequence_time_us=0;
+int debug_enabled=0;
 
 struct data_t{
 	void *fifo_reserved;
-	char msg[20];
+	char msg[24];
 	
 };
+struct debug_data_t{
+    void* fifo_reserved;
+    char msg[64];
+};
+
+K_FIFO_DEFINE(debug_fifo);
 
 K_FIFO_DEFINE(dispatcher_fifo);
 
 void button_0_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
 	paused = !paused;
-    printk("paused");
+    debug_log("paused");
 
 }
 
@@ -88,7 +98,7 @@ void button_1_handler(const struct device *dev, struct gpio_callback *cb, uint32
         snprintf(buf->msg,sizeof(buf->msg),"R,1000");
         k_fifo_put(&dispatcher_fifo, buf);
     }
-    printk("Button 1 pressed\n");
+   // printk("Button 1 pressed\n");
     
 
 }
@@ -101,7 +111,7 @@ void button_2_handler(const struct device *dev, struct gpio_callback *cb, uint32
         snprintf(buf->msg,sizeof(buf->msg),"Y,1000");
         k_fifo_put(&dispatcher_fifo, buf);
     }
-    printk("Button 2 pressed\n");
+    debug_log("Button 2 pressed\n");
 
 }
 
@@ -112,22 +122,43 @@ void button_3_handler(const struct device *dev, struct gpio_callback *cb, uint32
         snprintf(buf->msg,sizeof(buf->msg),"G,1000");
         k_fifo_put(&dispatcher_fifo, buf);
     }
-    printk("Button 3 pressed\n");
+    //printk("Button 3 pressed\n");
 }
 
 void button_4_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
-    printk("Button 4 pressed\n");
+    total_sequence_time_us=0;
+    debug_log("Button 4 pressed\n");
 }
 
 void red_led_task(void*, void*, void *) {
     while (1) {
         k_sem_take(&red_sem, K_FOREVER); 
         k_mutex_lock(&light_mutex, K_FOREVER); 
+
+        timing_t start_time , end_time;
+        timing_start();
+        start_time = timing_counter_get();
+
         gpio_pin_set_dt(&red, 1);
-        printk("Red ON\n");
+        debug_log("Red ON\n");
         k_msleep(red_duration);
         gpio_pin_set_dt(&red, 0);
-        printk("Red OFF\n");
+        debug_log("Red OFF\n");
+
+        end_time = timing_counter_get();
+        timing_stop();
+
+        uint64_t elapsed_cycles = timing_cycles_get(&start_time, &end_time);
+        uint64_t elapsed_ns = timing_cycles_to_ns(elapsed_cycles);
+        uint64_t elapsed_us = elapsed_ns / 1000;
+
+        k_mutex_lock(&time_mutex, K_FOREVER);
+        total_sequence_time_us += elapsed_us;
+        k_mutex_unlock(&time_mutex);
+
+        debug_log(" Red task took %llu µs (%llu cycles)\n", elapsed_us, elapsed_cycles);
+        debug_log(" Total sequence time: %llu µs\n", total_sequence_time_us);
+
         k_mutex_unlock(&light_mutex);
         k_sem_give(&dispatcher_release_sem);  
     }
@@ -135,13 +166,34 @@ void red_led_task(void*, void*, void *) {
 
 void green_led_task(void * , void*, void *) {
     while (1) {
+
         k_sem_take(&green_sem, K_FOREVER);
         k_mutex_lock(&light_mutex, K_FOREVER);
+        timing_t start_time , end_time;
+        timing_start();
+        start_time = timing_counter_get();
+
+
         gpio_pin_set_dt(&green, 1);
-        printk("Green ON\n");
+        debug_log("Green ON\n");
         k_msleep(green_duration);
         gpio_pin_set_dt(&green, 0);
-        printk("Green OFF\n");
+        debug_log("Green OFF\n");
+
+        end_time = timing_counter_get();
+        timing_stop();
+
+        uint64_t elapsed_cycles = timing_cycles_get(&start_time, &end_time);
+        uint64_t elapsed_ns = timing_cycles_to_ns(elapsed_cycles);
+        uint64_t elapsed_us = elapsed_ns / 1000;
+
+        k_mutex_lock(&time_mutex, K_FOREVER);
+        total_sequence_time_us += elapsed_us;
+        k_mutex_unlock(&time_mutex);
+
+        debug_log(" Green task took %llu µs (%llu cycles)\n", elapsed_us, elapsed_cycles);
+        debug_log(" Total sequence time: %llu µs\n", total_sequence_time_us);
+
         k_mutex_unlock(&light_mutex);
         k_sem_give(&dispatcher_release_sem);
     }
@@ -151,13 +203,33 @@ void yellow_led_task(void * , void*, void *) {
     while (1) {
         k_sem_take(&yellow_sem, K_FOREVER);
         k_mutex_lock(&light_mutex, K_FOREVER);
+
+        timing_t start_time , end_time;
+        timing_start();
+        start_time = timing_counter_get();
+
         gpio_pin_set_dt(&red, 1);
         gpio_pin_set_dt(&green, 1);
-        printk("Yellow ON\n");
+        debug_log("Yellow ON\n");
         k_msleep(yellow_duration);
         gpio_pin_set_dt(&red, 0);
         gpio_pin_set_dt(&green, 0);
-        printk("Yellow OFF\n");
+        debug_log("Yellow OFF\n");
+
+        end_time = timing_counter_get();
+        timing_stop();
+
+        uint64_t elapsed_cycles = timing_cycles_get(&start_time, &end_time);
+        uint64_t elapsed_ns = timing_cycles_to_ns(elapsed_cycles);
+        uint64_t elapsed_us = elapsed_ns / 1000;
+
+        k_mutex_lock(&time_mutex, K_FOREVER);
+        total_sequence_time_us += elapsed_us;
+        k_mutex_unlock(&time_mutex);
+
+        debug_log(" Yellow task took %llu µs (%llu cycles)\n", elapsed_us, elapsed_cycles);
+        debug_log(" Total sequence time: %llu µs\n", total_sequence_time_us);
+
         k_mutex_unlock(&light_mutex);
         k_sem_give(&dispatcher_release_sem);
     }
@@ -177,15 +249,15 @@ static void dispatcher_task(void *, void *, void *)
         strncpy(sequence, rec_item->msg, sizeof(sequence));
         k_free(rec_item);
 
-        printk("Dispatcher: %s\n", sequence);
+        debug_log("Dispatcher: %s\n", sequence);
 
-        // Parsitaan
+        
         char color = sequence[0];
-        int duration = atoi(&sequence[2]); // Oletetaan muoto "R,1000"
+        int duration = atoi(&sequence[2]); 
 
-        printk("Parsed: %c, %d ms\n", color, duration);
+        debug_log("Parsed: %c, %d ms\n", color, duration);
 
-        // Esim: tallenna duration, ja vapauta oikea sema
+        
         if (color == 'R') {
             red_duration = duration;
             k_sem_give(&red_sem);
@@ -196,8 +268,9 @@ static void dispatcher_task(void *, void *, void *)
             green_duration = duration;
             k_sem_give(&green_sem);
         }
+        
 
-        // Odota seuraavaa valoa varten
+       
         k_sem_take(&dispatcher_release_sem, K_FOREVER);
     }
 }
@@ -217,19 +290,51 @@ static void uart_task(void *, void *, void *)
                 }
             } else {
                 printk("UART msg: %s\n", uart_msg);
-
+                if(strcmp(uart_msg,"D,ON")==0){
+                    debug_enabled=1;
+                    printk("DEBUG ENABLED\n");
+                }else if(strcmp(uart_msg,"D,OFF")==0){
+                    debug_enabled=0;
+                    printk("DEBUG DISABLED \n");
+                }
+                else{
+                
                 struct data_t *buf = k_malloc(sizeof(struct data_t));
                 if (buf != NULL) {
                     snprintf(buf->msg, sizeof(buf->msg), "%s", uart_msg);
                     k_fifo_put(&dispatcher_fifo, buf);
                 }
-
+            }
                 uart_msg_cnt = 0;
                 memset(uart_msg, 0, sizeof(uart_msg));
             }
         }
         k_msleep(10);
     }
+}
+static void debug_task(void* ,void *, void *){
+    while(1){
+        struct debug_data_t *dbg = k_fifo_get(&debug_fifo, K_FOREVER);
+
+        if(dbg){
+            printk("[DEBUG] %s\n", dbg->msg);
+            k_free(dbg);
+        }
+    }
+}
+void debug_log(const char *format,...)
+{
+    if (!debug_enabled) return; 
+
+    struct debug_data_t *msg = k_malloc(sizeof(struct debug_data_t));
+    if (!msg) return;
+
+    va_list args;
+    va_start(args, format);
+    vsnprintf(msg->msg, sizeof(msg->msg), format, args);
+    va_end(args);
+
+    k_fifo_put(&debug_fifo, msg);
 }
 
 int init_led() {
@@ -272,6 +377,8 @@ int init_buttons() {
 
 int main(void) {
     k_mutex_init(&light_mutex);
+    k_mutex_init(&time_mutex);
+    timing_init();
 	init_led();
 	init_buttons();
     if (!device_is_ready(uart_dev)) {
