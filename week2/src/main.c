@@ -5,7 +5,7 @@
 #include <zephyr/drivers/uart.h>
 #include <stdlib.h>
 #include <zephyr/timing/timing.h>
-// Tämä on 2 pisteen toteutus viikkotehtävä 4 vielä pitää keksiä tapa jolla debugtask ei lisää tasking suoritus aikaa
+// Tämä on 3 pisteen toteutus viikkotehtävä 4 
 
 // LED-konfiguraatiot
 static const struct gpio_dt_spec red = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
