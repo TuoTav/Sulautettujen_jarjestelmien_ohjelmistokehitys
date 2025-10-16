@@ -5,7 +5,8 @@
 #include <zephyr/drivers/uart.h>
 #include <stdlib.h>
 #include <zephyr/timing/timing.h>
-// Tämä on 3 pisteen toteutus viikkotehtävä 4 
+#include "TimeParser.h"
+// Tämä on 2 pisteen toteutus viikkotehtävä 5 testcaseja on tarpeeksi ja timeparseri on integroitu
 
 // LED-konfiguraatiot
 static const struct gpio_dt_spec red = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
@@ -297,14 +298,22 @@ static void uart_task(void *, void *, void *)
                     debug_enabled=0;
                     printk("DEBUG DISABLED \n");
                 }
-                else{
-                
-                struct data_t *buf = k_malloc(sizeof(struct data_t));
-                if (buf != NULL) {
-                    snprintf(buf->msg, sizeof(buf->msg), "%s", uart_msg);
-                    k_fifo_put(&dispatcher_fifo, buf);
-                }
-            }
+                else if (strlen(uart_msg) == 6) {  
+                     int parsed_seconds = time_parse(uart_msg);
+                        if (parsed_seconds >= 0) {
+        
+                         struct data_t* buf = k_malloc(sizeof(struct data_t));
+                    if (buf != NULL) {
+                         snprintf(buf->msg, sizeof(buf->msg), "R,%d", parsed_seconds* 1000);
+                             k_fifo_put(&dispatcher_fifo, buf);
+                             }
+        debug_log("Parsed valid time: %d seconds\n", parsed_seconds);
+    } else {
+        printk("Virheellinen aikaformaatti: %s (koodi %d)\n", uart_msg, parsed_seconds);
+    }
+} else {
+    printk("Virheellinen viestin pituus: %s\n", uart_msg);
+}
                 uart_msg_cnt = 0;
                 memset(uart_msg, 0, sizeof(uart_msg));
             }
